@@ -3,38 +3,94 @@ name: RDP
 on:
   workflow_dispatch:
 
+env:
+  RDP_PASSWORD: "winaryo321"
+  RDP_USERNAME: "runneradmin"
+
 jobs:
-  secure-rdp:
+  rdp:
     runs-on: windows-latest
-    timeout-minutes: 3600
+    timeout-minutes: 360
 
     steps:
-      - name: Configure Core RDP Settings
+      # ========== SET PASSWORD ==========
+      - name: Set Password RDP
         run: |
-          # Enable Remote Desktop and disable Network Level Authentication (if needed)
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                             -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "SecurityLayer" -Value 0 -Force
+          Set-LocalUser -Name "${{ env.RDP_USERNAME }}" -Password (ConvertTo-SecureString "${{ env.RDP_PASSWORD }}" -AsPlainText -Force)
+          Write-Output "✅ Password berhasil diset"
+        shell: powershell
 
-          # Remove any existing rule with the same name to avoid duplication
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
+      # ========== ENABLE RDP ==========
+      - name: Enable RDP
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+          Write-Output "✅ RDP Enabled"
+        shell: powershell
+
+      # ========== INSTALL TAILSCALE ==========
+      - name: Install Tailscale
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe"
+          $output = "$env:TEMP\tailscale-setup.exe"
           
-          # For testing, allow any incoming connection on port 3389
-          netsh advfirewall firewall add rule name="RDP-Tailscale" `
-            dir=in action=allow protocol=TCP localport=3389
+          Write-Output "⬇️ Downloading Tailscale..."
+          Invoke-WebRequest -Uri $url -OutFile $output
+          
+          Write-Output "📦 Installing Tailscale..."
+          Start-Process -FilePath $output -ArgumentList "/install /quiet" -Wait
+          Start-Sleep -Seconds 10
+          
+          Write-Output "✅ Tailscale Installed"
+        shell: powershell
 
-          # (Optional) Restart the Remote Desktop service to ensure changes take effect
-          Restart-Service -Name TermService -Force
-
-      - name: Create RDP User with Secure Password
+      # ========== CONNECT TAILSCALE ==========
+      - name: Connect Tailscale
         run: |
-          Add-Type -AssemblyName System.Security
-          $charSet = @{
-              Upper   = [char[]](65..90)      # A-Z
-              Lower   = [char[]](97..122)     # a-z
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=github-rdp
+          Start-Sleep -Seconds 5
+          
+          $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          
+          Write-Output ""
+          Write-Output "╔════════════════════════════════════════════╗"
+          Write-Output "║            ✅ RDP SIAP!                    ║"
+          Write-Output "╠════════════════════════════════════════════╣"
+          Write-Output "║                                            ║"
+          Write-Output "  🖥️  IP Tailscale : $ip"
+          Write-Output "  👤  Username     : runneradmin"
+          Write-Output "  🔑  Password     : winaryo321"
+          Write-Output "  🔌  Port         : 3389"
+          Write-Output "║                                            ║"
+          Write-Output "╠════════════════════════════════════════════╣"
+          Write-Output "║  📱 KONEK DARI HP:                         ║"
+          Write-Output "║  PC Name : IP_PUBLIK_VPS:9999              ║"
+          Write-Output "║  User    : runneradmin                     ║"
+          Write-Output "║  Pass    : winaryo321                      ║"
+          Write-Output "╚════════════════════════════════════════════╝"
+        shell: powershell
+
+      # ========== KEEP ALIVE ==========
+      - name: Keep Alive 6 Jam
+        run: |
+          Write-Output "⏳ RDP aktif selama 6 jam..."
+          Write-Output "⚠️  JANGAN CANCEL workflow ini!"
+          Write-Output ""
+          
+          $timeout = 360
+          $elapsed = 0
+          
+          while ($elapsed -lt $timeout) {
+            Start-Sleep -Seconds 60
+            $elapsed++
+            $remaining = $timeout - $elapsed
+            
+            if ($remaining % 30 -eq 0) {
+              Write-Output "⏳ Sisa waktu: $remaining menit"
+            }
+          }
+        shell: powershell              Lower   = [char[]](97..122)     # a-z
               Number  = [char[]](48..57)      # 0-9
               Special = ([char[]](33..47) + [char[]](58..64) +
                          [char[]](91..96) + [char[]](123..126)) # Special characters
